@@ -8,7 +8,7 @@ module AGC
            In1,
            reset_not,
            ce_out,
-           Out3);
+           Out);
 
 
   input   clk;
@@ -17,31 +17,38 @@ module AGC
   input   signed [7:0] In1;
   input   reset_not;
   output  ce_out;
-  output  signed [7:0] Out3;
+  output  signed [7:0] Out;
 
 
   wire enb;
   wire [15:0] Constant_out1;
   wire [9:0] Constant1_out1;
   wire [9:0] counter_val;
-  wire [9:0] Reset1_out1;
+  wire [9:0] clk_counter_switch_out;
   reg [9:0] clk_counter;
-  wire sub_frame_start;
   wire signed [8:0] Abs_y;
   wire signed [8:0] Abs_cast;
-  wire signed [7:0] Abs_out1;
-  wire signed [7:0] current_max;
-  reg signed [7:0] Memory_out1;
-  wire signed [7:0] MinMax1_out1;
-  reg signed [15:0] pre_clamp_gain;
-  wire signed [15:0] applied_gain;
-  wire signed [23:0] Product_mul_temp;
+  wire [7:0] abs_input_val;
+  wire sub_frame_start;
+  wire [16:0] MinMax1_op_stage1;
+  wire [15:0] abs_input_val_dtc;
+  wire [15:0] current_max;
+  reg [15:0] Memory_out1;
+  wire [16:0] MinMax1_op_stage2;
+  wire [16:0] MinMax1_stage1_val;
+  wire [15:0] MinMax1_out1;
+  reg [15:0] pre_clamp_gain;
+  wire [15:0] dtc_out;
+  wire [15:0] applied_gain;
+  reg [15:0] delay_applied_gain;
+  wire signed [16:0] Product_cast;
+  wire signed [24:0] Product_mul_temp;
+  wire signed [23:0] Product_cast_1;
   wire signed [7:0] Product_out1;
-  reg signed [16:0] Divide_div_temp;
-  reg signed [16:0] Divide_cast;
+  reg [15:0] Divide_div_temp;
 
 
-  assign Constant_out1 = 16'b0111100001010010;
+  assign Constant_out1 = 16'b1111000010100100;
 
 
   assign Constant1_out1 = 10'b0000000000;
@@ -49,7 +56,7 @@ module AGC
 
   assign enb = clk_enable;
 
-  assign Reset1_out1 = (reset_not == 1'b0 ? Constant1_out1 :
+  assign clk_counter_switch_out = (reset_not == 1'b0 ? Constant1_out1 :
               counter_val);
 
 
@@ -60,7 +67,7 @@ module AGC
       end
       else begin
         if (enb) begin
-          clk_counter <= Reset1_out1;
+          clk_counter <= clk_counter_switch_out;
         end
       end
     end
@@ -69,19 +76,26 @@ module AGC
   assign counter_val = clk_counter + 10'b0000000001;
 
 
-  assign sub_frame_start = counter_val == 10'b0000000000;
-
-
   assign Abs_cast = {In1[7], In1};
   assign Abs_y = (In1 < 8'sb00000000 ?  - (Abs_cast) :
               {In1[7], In1});
-  assign Abs_out1 = Abs_y[7:0];
+  assign abs_input_val = Abs_y[7:0];
+
+
+  assign sub_frame_start = counter_val == 10'b0000000000;
+
+
+  assign MinMax1_op_stage1 = {abs_input_val, 9'b000000000};
+
+
+  assign abs_input_val_dtc = {abs_input_val[6:0], 9'b000000000};
+
 
 
   always @(posedge clk or negedge rst_n)
     begin : Memory_process
       if (rst_n == 1'b0) begin
-        Memory_out1 <= 8'sb00000000;
+        Memory_out1 <= 16'b0000000000000000;
       end
       else begin
         if (enb) begin
@@ -91,46 +105,61 @@ module AGC
     end
 
 
-  MinMax1 u_MinMax1 (.in0(Abs_out1),
-                     .in1(Memory_out1),
-                     .out0(MinMax1_out1)
-                     );
+  assign MinMax1_op_stage2 = {1'b0, Memory_out1};
+
+
+  assign MinMax1_stage1_val = (MinMax1_op_stage1 >= MinMax1_op_stage2 ? MinMax1_op_stage1 :
+              MinMax1_op_stage2);
+
+
+  assign MinMax1_out1 = MinMax1_stage1_val[15:0];
+
+
   assign current_max = (sub_frame_start == 1'b0 ? MinMax1_out1 :
-              Abs_out1);
+              abs_input_val_dtc);
 
 
   always @(Constant_out1, current_max) begin
-    Divide_div_temp = 17'sb00000000000000000;
-    Divide_cast = 17'sb00000000000000000;
-    if (current_max == 8'sb00000000) begin
-      pre_clamp_gain = 16'sb0111111111111111;
+    Divide_div_temp = 16'b0000000000000000;
+    if (current_max == 16'b0000000000000000) begin
+      pre_clamp_gain = 16'b1111111111111111;
     end
     else begin
-      Divide_cast = {1'b0, Constant_out1};
-      Divide_div_temp = Divide_cast / current_max;
-      if ((Divide_div_temp[16] == 1'b0) && (Divide_div_temp[15] != 1'b0)) begin
-        pre_clamp_gain = 16'sb0111111111111111;
-      end
-      else if ((Divide_div_temp[16] == 1'b1) && (Divide_div_temp[15] != 1'b1)) begin
-        pre_clamp_gain = 16'sb1000000000000000;
-      end
-      else begin
-        pre_clamp_gain = Divide_div_temp[15:0];
-      end
+      Divide_div_temp = Constant_out1 / current_max;
+      pre_clamp_gain = Divide_div_temp;
     end
   end
 
 
-  assign applied_gain = (pre_clamp_gain > 16'sb0001010000000000 ? 16'sb0001010000000000 :
-              (pre_clamp_gain < 16'sb0000000000000000 ? 16'sb0000000000000000 :
-              pre_clamp_gain));
+  assign dtc_out = (pre_clamp_gain[15:5] != 11'b00000000000 ? 16'b1111111111111111 :
+              {pre_clamp_gain[4:0], 11'b00000000000});
 
 
-  assign Product_mul_temp = In1 * applied_gain;
-  assign Product_out1 = Product_mul_temp[15:8];
+
+  assign applied_gain = (dtc_out > 16'b1010000000000000 ? 16'b1010000000000000 :
+              dtc_out);
 
 
-  assign Out3 = Product_out1;
+  always @(posedge clk or negedge rst_n)
+    begin : Unit_Delay_process
+      if (rst_n == 1'b0) begin
+        delay_applied_gain <= 16'b0000000000000000;
+      end
+      else begin
+        if (enb) begin
+          delay_applied_gain <= applied_gain;
+        end
+      end
+    end
+
+
+  assign Product_cast = {1'b0, delay_applied_gain};
+  assign Product_mul_temp = In1 * Product_cast;
+  assign Product_cast_1 = Product_mul_temp[23:0];
+  assign Product_out1 = Product_cast_1[18:11];
+
+
+  assign Out = Product_out1;
 
   assign ce_out = clk_enable;
 
