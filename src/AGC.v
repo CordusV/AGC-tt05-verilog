@@ -1,39 +1,30 @@
-
-`timescale 1 ns / 1 ns
-
 module AGC
           (clk,
-           rst_n,
-           clk_enable,
            In1,
            reset_not,
-           ce_out,
            Out);
 
 
   input   clk;
-  input   rst_n;
-  input   clk_enable;
   input   signed [7:0] In1;
   input   reset_not;
-  output  ce_out;
   output  signed [7:0] Out;
 
 
-  wire enb;
   wire [15:0] Constant_out1;
   wire [9:0] Constant1_out1;
   wire [9:0] counter_val;
   wire [9:0] clk_counter_switch_out;
   reg [9:0] clk_counter;
+  wire sub_frame_start;
   wire signed [8:0] Abs_y;
   wire signed [8:0] Abs_cast;
   wire [7:0] abs_input_val;
-  wire sub_frame_start;
+  reg  delayed_sub_frame_start;
   wire [16:0] MinMax1_op_stage1;
   wire [15:0] abs_input_val_dtc;
   wire [15:0] current_max;
-  reg [15:0] Memory_out1;
+  reg [15:0] Memory_current_max_out1;
   wire [16:0] MinMax1_op_stage2;
   wire [16:0] MinMax1_stage1_val;
   wire [15:0] MinMax1_out1;
@@ -47,6 +38,12 @@ module AGC
   wire signed [7:0] Product_out1;
   reg [15:0] Divide_div_temp;
 
+  initial begin
+    clk_counter = 10'b0000000000;
+    delayed_sub_frame_start = 1'b0;
+    Memory_current_max_out1 = 16'b0000000000000000;
+    delay_applied_gain = 16'b0000000000000000;
+  end
 
   assign Constant_out1 = 16'b1111000010100100;
 
@@ -54,26 +51,20 @@ module AGC
   assign Constant1_out1 = 10'b0000000000;
 
 
-  assign enb = clk_enable;
-
   assign clk_counter_switch_out = (reset_not == 1'b0 ? Constant1_out1 :
               counter_val);
 
 
-  always @(posedge clk or negedge rst_n)
+  always @(posedge clk)
     begin : Memory1_clk_counter_process
-      if (rst_n == 1'b0) begin
-        clk_counter <= 10'b0000000000;
-      end
-      else begin
-        if (enb) begin
-          clk_counter <= clk_counter_switch_out;
-        end
-      end
+      clk_counter <= clk_counter_switch_out;
     end
 
 
   assign counter_val = clk_counter + 10'b0000000001;
+
+
+  assign sub_frame_start = counter_val == 10'b0000000000;
 
 
   assign Abs_cast = {In1[7], In1};
@@ -82,7 +73,10 @@ module AGC
   assign abs_input_val = Abs_y[7:0];
 
 
-  assign sub_frame_start = counter_val == 10'b0000000000;
+  always @(posedge clk)
+    begin : Unit_Delay_sub_frame_process
+      delayed_sub_frame_start <= sub_frame_start;
+    end
 
 
   assign MinMax1_op_stage1 = {abs_input_val, 9'b000000000};
@@ -92,20 +86,13 @@ module AGC
 
 
 
-  always @(posedge clk or negedge rst_n)
-    begin : Memory_process
-      if (rst_n == 1'b0) begin
-        Memory_out1 <= 16'b0000000000000000;
-      end
-      else begin
-        if (enb) begin
-          Memory_out1 <= current_max;
-        end
-      end
+  always @(posedge clk)
+    begin : Memory_current_max_process
+      Memory_current_max_out1 <= current_max;
     end
 
 
-  assign MinMax1_op_stage2 = {1'b0, Memory_out1};
+  assign MinMax1_op_stage2 = {1'b0, Memory_current_max_out1};
 
 
   assign MinMax1_stage1_val = (MinMax1_op_stage1 >= MinMax1_op_stage2 ? MinMax1_op_stage1 :
@@ -115,7 +102,7 @@ module AGC
   assign MinMax1_out1 = MinMax1_stage1_val[15:0];
 
 
-  assign current_max = (sub_frame_start == 1'b0 ? MinMax1_out1 :
+  assign current_max = (delayed_sub_frame_start == 1'b0 ? MinMax1_out1 :
               abs_input_val_dtc);
 
 
@@ -140,16 +127,9 @@ module AGC
               dtc_out);
 
 
-  always @(posedge clk or negedge rst_n)
+  always @(posedge clk)
     begin : Unit_Delay_process
-      if (rst_n == 1'b0) begin
-        delay_applied_gain <= 16'b0000000000000000;
-      end
-      else begin
-        if (enb) begin
-          delay_applied_gain <= applied_gain;
-        end
-      end
+      delay_applied_gain <= applied_gain;
     end
 
 
@@ -160,7 +140,5 @@ module AGC
 
 
   assign Out = Product_out1;
-
-  assign ce_out = clk_enable;
 
 endmodule   
