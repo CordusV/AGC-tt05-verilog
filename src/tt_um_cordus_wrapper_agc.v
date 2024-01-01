@@ -20,7 +20,7 @@ module tt_um_cordus_wrapper_agc (
     assign uio_out = 8'b00000000;
 
     AGC AGC(.clk (clk),
-           .reset_x (reset)
+           .reset_x (reset),
            .In1 (ui_in),
            .reset_not (rst_n),
            .Out_rsvd (uo_out) );
