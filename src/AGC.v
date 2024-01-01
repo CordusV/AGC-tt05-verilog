@@ -1,16 +1,19 @@
 module AGC
           (clk,
+           reset_x,
            In1,
            reset_not,
-           Out);
+           Out_rsvd);
 
 
   input   clk;
+  input   reset_x;
   input   signed [7:0] In1;
   input   reset_not;
-  output  signed [7:0] Out;
+  output  signed [7:0] Out_rsvd;
 
 
+  reg signed [7:0] In1_1;
   wire [15:0] Constant_out1;
   wire [9:0] Constant1_out1;
   wire [9:0] counter_val;
@@ -28,22 +31,31 @@ module AGC
   wire [16:0] MinMax1_op_stage2;
   wire [16:0] MinMax1_stage1_val;
   wire [15:0] MinMax1_out1;
-  reg [15:0] pre_clamp_gain;
+  wire [15:0] pre_clamp_gain;
   wire [15:0] dtc_out;
   wire [15:0] applied_gain;
-  reg [15:0] delay_applied_gain;
+  reg [15:0] applied_gain_1;
   wire signed [16:0] Product_cast;
   wire signed [24:0] Product_mul_temp;
   wire signed [23:0] Product_cast_1;
   wire signed [7:0] Product_out1;
-  reg [15:0] Divide_div_temp;
+  reg signed [7:0] Product_out1_1;
 
   initial begin
+    In1_1 = 8'sb00000000;
     clk_counter = 10'b0000000000;
     delayed_sub_frame_start = 1'b0;
     Memory_current_max_out1 = 16'b0000000000000000;
-    delay_applied_gain = 16'b0000000000000000;
+    applied_gain_1 = 16'b0000000000000000;
+    Product_out1_1 = 8'sb00000000;
   end
+
+  always @(posedge clk)
+    begin : HwModeRegister_process
+      In1_1 <= In1;
+    end
+
+
 
   assign Constant_out1 = 16'b1111000010100100;
 
@@ -95,6 +107,7 @@ module AGC
   assign MinMax1_op_stage2 = {1'b0, Memory_current_max_out1};
 
 
+  // ---- Tree max implementation ----
   assign MinMax1_stage1_val = (MinMax1_op_stage1 >= MinMax1_op_stage2 ? MinMax1_op_stage1 :
               MinMax1_op_stage2);
 
@@ -106,18 +119,12 @@ module AGC
               abs_input_val_dtc);
 
 
-  always @(Constant_out1, current_max) begin
-    Divide_div_temp = 16'b0000000000000000;
-    if (current_max == 16'b0000000000000000) begin
-      pre_clamp_gain = 16'b1111111111111111;
-    end
-    else begin
-      Divide_div_temp = Constant_out1 / current_max;
-      pre_clamp_gain = Divide_div_temp;
-    end
-  end
-
-
+  Divide_rsvd divide_rsvd_1_1 (.clk(clk),
+                               .reset_x(reset_x),
+                               .dividend_in(Constant_out1),
+                               .divisor_in(current_max),
+                               .quotient(pre_clamp_gain)
+                               );
   assign dtc_out = (pre_clamp_gain[15:5] != 11'b00000000000 ? 16'b1111111111111111 :
               {pre_clamp_gain[4:0], 11'b00000000000});
 
@@ -128,17 +135,26 @@ module AGC
 
 
   always @(posedge clk)
-    begin : Unit_Delay_process
-      delay_applied_gain <= applied_gain;
+    begin : HwModeRegister1_process
+      applied_gain_1 <= applied_gain;
     end
 
 
-  assign Product_cast = {1'b0, delay_applied_gain};
-  assign Product_mul_temp = In1 * Product_cast;
+
+  assign Product_cast = {1'b0, applied_gain_1};
+  assign Product_mul_temp = In1_1 * Product_cast;
   assign Product_cast_1 = Product_mul_temp[23:0];
   assign Product_out1 = Product_cast_1[18:11];
 
 
-  assign Out = Product_out1;
+  always @(posedge clk)
+    begin : PipelineRegister_process
+      Product_out1_1 <= Product_out1;
+    end
 
-endmodule   
+
+
+  assign Out_rsvd = Product_out1_1;
+
+endmodule  // AGC
+

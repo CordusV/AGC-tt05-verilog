@@ -9,7 +9,7 @@ TOPLEVEL_LANG ?= verilog
 ifneq ($(GATES),yes)
 
 # this is the only part you should need to modify:
-VERILOG_SOURCES += $(PWD)/tb.v $(PWD)/tt_um_cordus_wrapper_agc.v $(PWD)/AGC.v
+VERILOG_SOURCES += $(PWD)/tb.v $(PWD)/tt_um_cordus_wrapper_agc.v $(PWD)/AGC.v $(PWD)/Divide_rsvd.v
 else
 
 # gate level simulation requires some extra setup, you shouldn't need to touch this

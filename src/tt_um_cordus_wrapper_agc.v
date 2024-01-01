@@ -22,6 +22,6 @@ module tt_um_cordus_wrapper_agc (
     AGC AGC(.clk (clk),
            .In1 (ui_in),
            .reset_not (rst_n),
-           .Out (uo_out) );
+           .Out_rsvd (uo_out) );
 
 endmodule
